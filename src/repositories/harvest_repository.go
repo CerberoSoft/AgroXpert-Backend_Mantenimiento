@@ -135,6 +135,19 @@ func UpdateSummaryFinalProduction(idHarvest string, idFinalProduction primitive.
 	return nil
 }
 
+
+// Actualiza la lista de las estimaciones de cosechas asociadas a una cosecha
+// específica. Esta función es necesaria para mantener un registro preciso y actualizado de las estimaciones 
+//realizadas a lo largo del tiempo. Al agregar nuevas, se permite un seguimiento 
+//más efectivo y una evaluación del rendimiento y las expectativas de la cosecha en cuestión.
+
+// @param idHarvest: Es el id de la cosecha a la que se desea agregar la nueva estimación. Con este se
+// buscará y actualizará la cosecha correspondiente en la base de datos.
+
+// @param idNewEstimate: Es el id de la nueva estimación que se desea agregar a la lista.
+
+// @return error: Un error que indica un fallo en la operación. Si no hay errores, se devuelve 'nil'.
+
 func UpdateEstimatesHarvest(idHarvest string, idNewEstimate primitive.ObjectID) error {
 	collection := database.Db.GetCollection("Harvest")
 
@@ -156,6 +169,17 @@ func UpdateEstimatesHarvest(idHarvest string, idNewEstimate primitive.ObjectID) 
 	return nil
 }
 
+// Recupera y consolida la información histórica de las estimaciones de cosechas
+// y la producción final para un lote de granja específico. Este método es útil para analizar tendencias
+// y realizar un seguimiento del rendimiento de la producción agrícola a lo largo del tiempo.
+
+// @param FarmLotID: Es el identificador único del lote de granja para el cual se desea recuperar la
+//   información histórica de las estimaciones de cosechas.
+
+// @return []models.HarvestDetails: La información histórica de las estimaciones de cosecha y producción 
+//  final para el lote de granja especificado. Si no se encuentran resultados, se devuelve un slice vacío
+
+// @return error: Un error que indica un fallo en la operación. Si no hay errores, se devuelve 'nil'.
 func GetHistoricHarvestEsimation(FarmLotID string) ([]models.HarvestDetails, error) {
 	var resultHarvest []models.HarvestDetails
 	var modelHarvestDetails models.HarvestDetails
