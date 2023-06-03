@@ -169,6 +169,17 @@ func UpdateEstimatesHarvest(idHarvest string, idNewEstimate primitive.ObjectID) 
 	return nil
 }
 
+// Recupera y consolida la información histórica de las estimaciones de cosechas
+// y la producción final para un lote de granja específico. Este método es útil para analizar tendencias
+// y realizar un seguimiento del rendimiento de la producción agrícola a lo largo del tiempo.
+
+// @param FarmLotID: Es el identificador único del lote de granja para el cual se desea recuperar la
+//   información histórica de las estimaciones de cosechas.
+
+// @return []models.HarvestDetails: La información histórica de las estimaciones de cosecha y producción 
+//  final para el lote de granja especificado. Si no se encuentran resultados, se devuelve un slice vacío
+
+// @return error: Un error que indica un fallo en la operación. Si no hay errores, se devuelve 'nil'.
 func GetHistoricHarvestEsimation(FarmLotID string) ([]models.HarvestDetails, error) {
 	var resultHarvest []models.HarvestDetails
 	var modelHarvestDetails models.HarvestDetails
