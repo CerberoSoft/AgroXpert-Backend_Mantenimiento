@@ -57,47 +57,55 @@ func GetOneHarvest(HarvestID string) (models.Harvest, error) {
 
 	return modelHarvest, nil
 }
-
 func GetHarvestsByFarmLotID(FarmLotID string) ([]models.Harvest, error) {
-	var resultHarvest []models.Harvest
-	var modelHarvest models.Harvest
 	collection := database.Db.GetCollection("Harvest")
-
 	id, err := primitive.ObjectIDFromHex(FarmLotID)
 	if err != nil {
-		return nil, fmt.Errorf("error convert id: %v", err)
+		return nil, fmt.Errorf("error converting ID: %v", err)
 	}
-
 	filter := bson.M{"idFarmLot": id}
-	harvest, err := collection.Find(context.Background(), filter)
-	collection.Aggregate(context.Background(), []bson.M{
-		{"$match": bson.M{"idFarmLot": id}},
-		{"$lookup": bson.M{
-			"from":         "Estimate",
-			"localField":   "_id",
-			"foreignField": "idHarvest",
-			"as":           "estimates",
-		}},
-	})
+	resultHarvest, err := fetchHarvests(collection, filter)
 	if err != nil {
-		return nil, fmt.Errorf("error fiend all harvest: %v", err)
+		return nil, err
 	}
+	return resultHarvest, nil
+}
 
-	for harvest.Next(context.Background()) {
-		err := harvest.Decode(&modelHarvest)
+func fetchHarvests(collection *mongo.Collection, filter bson.M) ([]models.Harvest, error) {
+	var resultHarvest []models.Harvest
+	modelHarvest := models.Harvest{}
+	harvestCursor, err := collection.Find(context.Background(), filter)
+	if err != nil {
+		return nil, fmt.Errorf("error finding harvests: %v", err)
+	}
+	defer harvestCursor.Close(context.Background())
+
+	for harvestCursor.Next(context.Background()) {
+		err := harvestCursor.Decode(&modelHarvest)
 		if err != nil {
-			return nil, fmt.Errorf("error decode harvest: %v", err)
+			return nil, fmt.Errorf("error decoding harvest: %v", err)
 		}
 		resultHarvest = append(resultHarvest, modelHarvest)
 	}
 
 	return resultHarvest, nil
 }
-
 func CreateHarvest(harvestReq models.CreateHarvest) (models.CreateHarvest, error) {
 	collection := database.Db.GetCollection("Harvest")
+	harvest := createHarvestMap(harvestReq)
 
-	mapNewFarmLot := bson.M{
+	result, err := insertDocument(collection, harvest)
+	if err != nil {
+		return models.CreateHarvest{}, fmt.Errorf("error inserting farm lot: %v", err)
+	}
+
+	id := result.InsertedID.(primitive.ObjectID)
+	harvestReq.ID = id
+	return harvestReq, nil
+}
+
+func createHarvestMap(harvestReq models.CreateHarvest) bson.M {
+	harvest := bson.M{
 		"type":                   harvestReq.Type,
 		"idFarmLot":              harvestReq.IDFarmLot,
 		"evaluationStartDate":    harvestReq.EvaluationStartDate + "Z",
@@ -106,16 +114,16 @@ func CreateHarvest(harvestReq models.CreateHarvest) (models.CreateHarvest, error
 		"estimates":              []primitive.ObjectID{},
 	}
 
-	result, err := collection.InsertOne(context.Background(), mapNewFarmLot)
-	if err != nil {
-		return models.CreateHarvest{}, fmt.Errorf("error insert farm lot: %v", err)
-	}
-
-	id := result.InsertedID.(primitive.ObjectID)
-	harvestReq.ID = id
-
-	return harvestReq, nil
+	return harvest
 }
+
+func insertDocument(collection *mongo.Collection, document interface{}) (*mongo.InsertOneResult, error) {
+	result, err := collection.InsertOne(context.Background(), document)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+} 
 
 func UpdateSummaryFinalProduction(idHarvest string, idFinalProduction primitive.ObjectID) error {
 	collection := database.Db.GetCollection("Harvest")
@@ -181,12 +189,17 @@ func UpdateEstimatesHarvest(idHarvest string, idNewEstimate primitive.ObjectID) 
 
 // @return error: Un error que indica un fallo en la operación. Si no hay errores, se devuelve 'nil'.
 func GetHistoricHarvestEsimation(FarmLotID string) ([]models.HarvestDetails, error) {
-	var resultHarvest []models.HarvestDetails
-	var modelHarvestDetails models.HarvestDetails
-
 	collection := database.Db.GetCollection("Harvest")
 	id, err := primitive.ObjectIDFromHex(FarmLotID)
+	pipelineHistoric := buildPipelineHistoric(id)
+	resultHarvest, err := fetchHistoricHarvests(collection, pipelineHistoric)
+	if err != nil {
+		return nil, err
+	}
+	return resultHarvest, nil
+}
 
+func buildPipelineHistoric(id primitive.ObjectID) []bson.M {
 	pipelineHistoric := []bson.M{
 		{
 			"$match": bson.M{
@@ -216,7 +229,6 @@ func GetHistoricHarvestEsimation(FarmLotID string) ([]models.HarvestDetails, err
 				"as":           "summaryFinalProduction",
 			},
 		},
-
 		{
 			"$unwind": bson.M{
 				"path":                       "$summaryFinalProduction",
@@ -229,27 +241,32 @@ func GetHistoricHarvestEsimation(FarmLotID string) ([]models.HarvestDetails, err
 			},
 		},
 	}
+	return pipelineHistoric
+}
 
-	historic, err := collection.Aggregate(context.Background(), pipelineHistoric)
-	err = historic.Decode(&modelHarvestDetails)
+func fetchHistoricHarvests(collection *mongo.Collection, pipeline []bson.M) ([]models.HarvestDetails, error) {
+	var resultHarvest []models.HarvestDetails
+	modelHarvestDetails := models.HarvestDetails{}
 
-	if err == mongo.ErrNoDocuments {
-		return []models.HarvestDetails{}, err
+	historicCursor, err := collection.Aggregate(context.Background(), pipeline)
+	if err != nil {
+		return nil, fmt.Errorf("error aggregating historic harvests: %v", err)
 	}
+	defer historicCursor.Close(context.Background())
 
-	for historic.Next(context.Background()) {
+	for historicCursor.Next(context.Background()) {
 		var lookup models.HarvestDetails
-		err := historic.Decode(&lookup)
+		err := historicCursor.Decode(&lookup)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error decoding historic harvest: %v", err)
 		}
 		resultHarvest = append(resultHarvest, lookup)
 	}
 
-	if err := historic.Err(); err != nil {
+	if err := historicCursor.Err(); err != nil {
 		return nil, err
 	}
 
 	return resultHarvest, nil
-
 }
+
